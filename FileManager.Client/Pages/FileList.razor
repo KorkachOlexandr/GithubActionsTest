@@ -1,0 +1,341 @@
+@page "/files"
+@using System.IO
+@using FileManager.Client.Services
+@using FileManager.Shared.Models
+@using FileManager.Shared.DTOs
+@using FileManager.Shared.Services
+@using Blazored.LocalStorage
+@using Microsoft.AspNetCore.Components.Forms
+@inject ApiService Api
+@inject ILocalStorageService LocalStorage
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+
+<style>
+    .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+    .header { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .error { background: #fed7d7; color: #c53030; padding: 16px; border-radius: 12px; margin-bottom: 24px; }
+    .card { background: white; border-radius: 16px; padding: 32px; margin-bottom: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .upload-zone { border: 3px dashed #cbd5e0; border-radius: 12px; padding: 40px; text-align: center; background: #f7fafc; }
+    .controls { display: flex; gap: 32px; flex-wrap: wrap; }
+    .control-group { }
+    .control-label { display: block; font-weight: 600; color: #4a5568; margin-bottom: 12px; font-size: 14px; }
+    .btn-group { display: flex; gap: 8px; }
+    .btn { padding: 10px 20px; border: 2px solid #e2e8f0; background: white; color: #4a5568; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .btn.active { border-color: #667eea; background: #667eea; color: white; }
+    .btn.filter.active { border-color: #48bb78; background: #48bb78; }
+    .btn.danger { background: #e53e3e; color: white; border: none; }
+    .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+    .file-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .file-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .file-icon { width: 48px; height: 48px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name { font-weight: 600; color: #2d3748; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-meta { color: #a0aec0; font-size: 13px; margin-top: 2px; }
+    .file-details { border-top: 1px solid #e2e8f0; padding-top: 12px; margin-bottom: 16px; font-size: 12px; color: #718096; }
+    .file-actions { display: flex; gap: 8px; }
+    .file-actions button { flex: 1; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: white; }
+    .btn-view { background: #667eea; }
+    .btn-download { background: #48bb78; }
+    .btn-delete { flex: initial; padding: 8px 12px; background: #fc8181; }
+    .empty { text-align: center; padding: 60px 20px; color: #a0aec0; }
+    .checkbox-group { display: flex; gap: 12px; flex-wrap: wrap; }
+    .checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #4a5568; }
+</style>
+
+<div style="min-height: 100vh; background: #f7fafc;">
+    <div class="header">
+        <div>
+            <h1 style="margin: 0; font-size: 24px; color: #2d3748;">File Manager</h1>
+            <p style="margin: 4px 0 0 0; color: #718096; font-size: 14px;">Welcome, @username</p>
+        </div>
+        <button @onclick="Logout" class="btn danger">Logout</button>
+    </div>
+
+    <div class="container">
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="error">@error</div>
+        }
+
+        <div class="card">
+            <h2 style="margin: 0 0 20px 0; font-size: 20px; color: #2d3748;">Upload Files</h2>
+            <div class="upload-zone">
+                <div style="font-size: 48px; margin-bottom: 16px;">📤</div>
+                <p style="margin: 0 0 16px 0; color: #4a5568; font-size: 16px;">Click or drag files here</p>
+                <InputFile OnChange="HandleFileSelect" multiple style="display: block; margin: 0 auto;" />
+                <p style="margin-top: 12px; font-size: 13px; color: #a0aec0;">All file types accepted • Only .kt and .jpg can be previewed</p>
+            </div>
+        </div>
+
+
+
+        <InputFile id="replaceFileInput" OnChange="HandleFileReplace" style="display: none;" />
+
+        <div class="card">
+            <div class="controls">
+                <div class="control-group">
+                    <label class="control-label">Sort by Extension</label>
+                    <div class="btn-group">
+                        <button @onclick="@(() => SetSort(true))" class="btn @(sortOrder == true ? "active" : "")">A → Z</button>
+                        <button @onclick="@(() => SetSort(false))" class="btn @(sortOrder == false ? "active" : "")">Z → A</button>
+                        <button @onclick="ClearSort" class="btn">Clear</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Filter by Type</label>
+                    <div class="btn-group">
+                        <button @onclick="@(() => ToggleFilter("js"))" class="btn filter @(filterTypes.Contains("js") ? "active" : "")">.js</button>
+                        <button @onclick="@(() => ToggleFilter("png"))" class="btn filter @(filterTypes.Contains("png") ? "active" : "")">.png</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Show Columns</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@showCreated" @onchange="@(() => showCreated = !showCreated)" />
+                            <span>Created</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@showModified" @onchange="@(() => showModified = !showModified)" />
+                            <span>Modified</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@showUploader" @onchange="@(() => showUploader = !showUploader)" />
+                            <span>Uploader</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" checked="@showEditor" @onchange="@(() => showEditor = !showEditor)" />
+                            <span>Editor</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="file-grid">
+            @foreach (var file in files)
+            {
+                <div class="file-card">
+                    <div class="file-header">
+                        <div class="file-icon">@GetFileIcon(file.Type)</div>
+                        <div class="file-info">
+                            <div class="file-name">@file.Name</div>
+                            <div class="file-meta">.@file.Type • @FormatSize(file.Size)</div>
+                        </div>
+                    </div>
+
+                    @if (showCreated || showModified || showUploader || showEditor)
+                    {
+                        <div class="file-details">
+                            @if (showCreated) { <div>Created: @file.CreatedDate.ToString("g")</div> }
+                            @if (showModified) { <div>Modified: @file.ModifiedDate.ToString("g")</div> }
+                            @if (showUploader) { <div>Uploader: @file.UploaderName</div> }
+                            @if (showEditor) { <div>Editor: @file.EditorName</div> }
+                        </div>
+                    }
+
+                    <div class="file-actions">
+                        <button @onclick="@(() => ViewFile(file))" class="btn-view">View</button>
+                        <button @onclick="@(() => DownloadFile(file))" class="btn-download">Download</button>
+                        <button @onclick="@(() => TriggerFileReplace(file.FileId))" class="btn-view">Replace</button>
+                        @if (file.UploaderId == currentUserId)
+                        {
+                            <button @onclick="@(() => DeleteFile(file.FileId))" class="btn-delete">Delete</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (files.Count == 0)
+        {
+            <div class="empty">
+                <div style="font-size: 64px; margin-bottom: 16px;">🔭</div>
+                <p style="font-size: 18px; margin: 0;">No files yet</p>
+                <p style="font-size: 14px; margin-top: 8px;">Upload your first file to get started</p>
+            </div>
+        }
+    </div>
+
+    @if (selectedFile != null)
+    {
+        <FileViewer File="selectedFile" OnClose="CloseViewer" />
+    }
+</div>
+
+@code {
+    private List<FileMetadata> files = new();
+    private bool? sortOrder = null;
+    private List<string> filterTypes = new();
+    private bool showCreated = true;
+    private bool showModified = true;
+    private bool showUploader = true;
+    private bool showEditor = true;
+    private string error = "";
+    private string username = "";
+    private long currentUserId = 0;
+    private FileMetadata? selectedFile = null;
+    private long fileIdToReplace = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        username = await LocalStorage.GetItemAsStringAsync("username") ?? "";
+        var userIdStr = await LocalStorage.GetItemAsStringAsync("userId");
+        if (!string.IsNullOrEmpty(userIdStr))
+        {
+            currentUserId = long.Parse(userIdStr.Trim('"'));
+        }
+        
+        if (string.IsNullOrEmpty(username))
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+        await LoadFiles();
+    }
+
+    private async Task LoadFiles()
+    {
+        try
+        {
+            files = await Api.ListFilesAsync(sortOrder, filterTypes.Count > 0 ? filterTypes : null);
+        }
+        catch
+        {
+            error = "Failed to load files";
+        }
+    }
+
+    private async Task HandleFileSelect(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            var content = new StreamContent(stream);
+            await Api.UploadFileAsync(content, file.Name);
+            await LoadFiles();
+            error = "";
+        }
+        catch (Exception ex)
+        {
+            error = "Upload failed: " + ex.Message;
+        }
+    }
+
+    private async Task TriggerFileReplace(long fileId)
+    {
+        fileIdToReplace = fileId;
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('replaceFileInput').click()");
+    }
+
+    private async Task HandleFileReplace(InputFileChangeEventArgs e)
+    {
+        if (fileIdToReplace == 0) return;
+
+        try
+        {
+            var file = e.File;
+            var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            var content = new StreamContent(stream);
+            await Api.UpdateFileAsync(fileIdToReplace, content, file.Name);
+            await LoadFiles();
+            error = "";
+            fileIdToReplace = 0;
+        }
+        catch (Exception ex)
+        {
+            error = "Replace failed: " + ex.Message;
+            fileIdToReplace = 0;
+        }
+    }
+
+    private async Task DeleteFile(long fileId)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "Delete this file?"))
+        {
+            try
+            {
+                await Api.DeleteFileAsync(fileId);
+                await LoadFiles();
+            }
+            catch
+            {
+                error = "Delete failed";
+            }
+        }
+    }
+
+    private async Task DownloadFile(FileMetadata file)
+    {
+        try
+        {
+            var data = await Api.DownloadFileAsync(file.FileId);
+            await JSRuntime.InvokeVoidAsync("downloadFile", file.Name, Convert.ToBase64String(data));
+        }
+        catch
+        {
+            error = "Download failed";
+        }
+    }
+
+    private void ViewFile(FileMetadata file) => selectedFile = file;
+    private void CloseViewer() => selectedFile = null;
+
+    private async Task SetSort(bool ascending)
+    {
+        sortOrder = ascending;
+        await LoadFiles();
+    }
+
+    private async Task ClearSort()
+    {
+        sortOrder = null;
+        await LoadFiles();
+    }
+
+    private async Task ToggleFilter(string type)
+    {
+        if (filterTypes.Contains(type))
+            filterTypes.Remove(type);
+        else
+            filterTypes.Add(type);
+        await LoadFiles();
+    }
+
+    private async Task Logout()
+    {
+        await LocalStorage.RemoveItemAsync("token");
+        await LocalStorage.RemoveItemAsync("username");
+        await LocalStorage.RemoveItemAsync("userId");
+        Navigation.NavigateTo("/login");
+    }
+
+
+
+    private string GetFileIcon(string type) => type switch
+    {
+        "kt" => "📄",
+        "jpg" or "jpeg" => "🖼️",
+        "png" => "🖼️",
+        "js" => "📜",
+        "pdf" => "📕",
+        "txt" => "📝",
+        "csv" => "📊",
+        "zip" or "rar" => "📦",
+        "mp3" or "wav" => "🎵",
+        "mp4" or "avi" => "🎬",
+        _ => "📎"
+    };
+
+    private string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024} KB";
+        return $"{bytes / (1024 * 1024)} MB";
+    }
+}

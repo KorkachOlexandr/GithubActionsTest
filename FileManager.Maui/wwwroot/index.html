@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Manager</title>
+    <base href="/" />
+</head>
+<body>
+    <div id="app">Loading...</div>
+
+    <script>
+        window.downloadFile = function (filename, base64) {
+            const link = document.createElement('a');
+            link.href = 'data:application/octet-stream;base64,' + base64;
+            link.download = filename;
+            link.click();
+        };
+    </script>
+
+    <script src="_framework/blazor.webview.js"></script>
+</body>
+</html>

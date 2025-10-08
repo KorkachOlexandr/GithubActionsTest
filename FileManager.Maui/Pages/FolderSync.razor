@@ -1,0 +1,131 @@
+@page "/sync"
+@using System.IO
+@using FileManager.Maui.Services
+@using FileManager.Shared.DTOs
+@using FileManager.Shared.Models
+@using FileManager.Shared.Services
+@using Blazored.LocalStorage
+@inject ApiService Api
+@inject ILocalStorageService LocalStorage
+@inject IFolderSyncService FolderSyncService
+@inject NavigationManager Navigation
+
+<style>
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    .header { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .card { background: white; border-radius: 16px; padding: 32px; margin-bottom: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .btn { padding: 14px 28px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 16px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status { margin-top: 20px; padding: 16px; background: #f7fafc; border-radius: 8px; color: #4a5568; }
+    .success { background: #c6f6d5; color: #22543d; }
+    .error { background: #fed7d7; color: #c53030; }
+</style>
+
+<div style="min-height: 100vh; background: #f7fafc;">
+    <div class="header">
+        <div>
+            <h1 style="margin: 0; font-size: 24px; color: #2d3748;">Folder Sync</h1>
+            <p style="margin: 4px 0 0 0; color: #718096; font-size: 14px;">Sync local folder with server</p>
+        </div>
+        <button @onclick="@(() => Navigation.NavigateTo("/files-maui"))" class="btn" style="background: #718096;">Back to Files</button>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #2d3748;">Select Folder to Sync</h2>
+            <p style="color: #718096; margin-bottom: 24px;">Choose a folder to synchronize with your cloud files. Missing files will be uploaded and downloaded automatically.</p>
+            
+            <button @onclick="SyncFolder" class="btn" disabled="@syncing">
+                @(syncing ? "Syncing..." : "Select Folder & Start Sync")
+            </button>
+
+            @if (!string.IsNullOrEmpty(syncStatus))
+            {
+                <div class="status @(isSuccess ? "success" : isError ? "error" : "")">
+                    @syncStatus
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool syncing = false;
+    private string syncStatus = "";
+    private bool isSuccess = false;
+    private bool isError = false;
+
+    private async Task SyncFolder()
+    {
+        syncing = true;
+        isSuccess = false;
+        isError = false;
+        syncStatus = "Opening folder picker...";
+        StateHasChanged();
+
+        try
+        {
+            var folderPath = await FolderSyncService.PickFolderAsync();
+            
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                syncStatus = "Sync cancelled";
+                syncing = false;
+                return;
+            }
+
+            syncStatus = $"Analyzing: {Path.GetFileName(folderPath)}";
+            StateHasChanged();
+            await Task.Delay(100);
+
+            var localFiles = await FolderSyncService.GetFilesInFolderAsync(folderPath);
+            var req = new SyncRequest { LocalFiles = localFiles };
+            var res = await Api.CompareSyncAsync(req);
+
+            int uploaded = 0, downloaded = 0;
+
+            // Upload missing files
+            foreach (var fileName in res.ToUpload)
+            {
+                var filePath = Path.Combine(folderPath, fileName);
+                var data = await FolderSyncService.ReadFileAsync(filePath);
+                
+                using var ms = new MemoryStream(data);
+                await Api.UploadFileAsync(new StreamContent(ms), fileName);
+                uploaded++;
+                
+                syncStatus = $"Uploading: {uploaded}/{res.ToUpload.Count}";
+                StateHasChanged();
+            }
+
+            // Download missing files
+            var files = await Api.ListFilesAsync();
+            foreach (var fileName in res.ToDownload)
+            {
+                var serverFile = files.FirstOrDefault(f => f.Name == fileName);
+                if (serverFile != null)
+                {
+                    var data = await Api.DownloadFileAsync(serverFile.FileId);
+                    var filePath = Path.Combine(folderPath, fileName);
+                    await FolderSyncService.WriteFileAsync(filePath, data);
+                    downloaded++;
+                    
+                    syncStatus = $"Downloading: {downloaded}/{res.ToDownload.Count}";
+                    StateHasChanged();
+                }
+            }
+
+            syncStatus = $"✓ Complete: {uploaded} uploaded, {downloaded} downloaded";
+            isSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            syncStatus = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            syncing = false;
+        }
+    }
+}

@@ -1,0 +1,141 @@
+@using FileManager.Client.Services
+@using FileManager.Shared.Models
+@inject ApiService Api
+
+<style>
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); display: flex; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); }
+    .modal { background: white; border-radius: 20px; max-width: 900px; max-height: 90vh; overflow: hidden; position: relative; width: 90%; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; }
+    .modal-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 24px 32px; color: white; }
+    .modal-title { margin: 0; font-size: 24px; font-weight: 600; }
+    .modal-subtitle { margin: 8px 0 0 0; opacity: 0.9; font-size: 14px; }
+    .modal-close { background: rgba(255, 255, 255, 0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .modal-close:hover { background: rgba(255, 255, 255, 0.3); }
+    .modal-content { padding: 32px; overflow: auto; flex: 1; }
+    .loading { text-align: center; padding: 60px 20px; }
+    .spinner { width: 60px; height: 60px; border: 4px solid #e2e8f0; border-top-color: #667eea; border-radius: 50%; margin: 0 auto 20px; animation: spin 1s linear infinite; }
+    .error-box { background: #fed7d7; color: #c53030; padding: 20px; border-radius: 12px; text-align: center; }
+    .code-block { background: #1e293b; border-radius: 12px; padding: 24px; overflow: auto; }
+    .code-block pre { margin: 0; color: #e2e8f0; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
+    .image-container { text-align: center; background: #f7fafc; border-radius: 12px; padding: 20px; }
+    .image-container img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+    .no-preview { background: #fef3c7; border: 2px solid #fbbf24; border-radius: 12px; padding: 32px; text-align: center; }
+    
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+
+<div class="modal-overlay">
+    <div class="modal">
+        <div class="modal-header">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2 class="modal-title">@File.Name</h2>
+                    <p class="modal-subtitle">.@File.Type • @FormatSize(File.Size)</p>
+                </div>
+                <button @onclick="OnClose" class="modal-close">✕</button>
+            </div>
+        </div>
+
+        <div class="modal-content">
+            @if (loading)
+            {
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p style="color: #718096; font-size: 16px;">Loading file...</p>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(error))
+            {
+                <div class="error-box">
+                    <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+                    <p style="margin: 0; font-size: 16px; font-weight: 600;">@error</p>
+                </div>
+            }
+            else if (content != null)
+            {
+                @if (File.Type == "kt")
+                {
+                    <div class="code-block">
+                        <pre>@textContent</pre>
+                    </div>
+                }
+                else if (File.Type == "jpg" || File.Type == "jpeg")
+                {
+                    <div class="image-container">
+                        <img src="@imageUrl" alt="@File.Name" />
+                    </div>
+                }
+                else
+                {
+                    <div class="no-preview">
+                        <div style="font-size: 64px; margin-bottom: 20px;">👁️‍🗨️</div>
+                        <h3 style="margin: 0 0 12px 0; color: #92400e; font-size: 20px;">Preview Not Available</h3>
+                        <p style="color: #78350f; margin: 0;">
+                            Only <strong>.kt</strong> and <strong>.jpg</strong> files can be previewed.
+                        </p>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public required FileMetadata File { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private byte[]? content;
+    private string? textContent;
+    private string? imageUrl;
+    private bool loading = true;
+    private string error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadContent();
+    }
+
+    private async Task LoadContent()
+    {
+        try
+        {
+            if (File.Type == "kt" || File.Type == "jpg" || File.Type == "jpeg")
+            {
+                content = await Api.DownloadFileAsync(File.FileId);
+
+                if (File.Type == "kt")
+                {
+                    textContent = System.Text.Encoding.UTF8.GetString(content);
+                }
+                else if (File.Type == "jpg" || File.Type == "jpeg")
+                {
+                    var base64 = Convert.ToBase64String(content);
+                    imageUrl = $"data:image/jpeg;base64,{base64}";
+                }
+            }
+            else
+            {
+                content = new byte[0];
+            }
+
+            loading = false;
+        }
+        catch
+        {
+            error = "Failed to load file content";
+            loading = false;
+        }
+    }
+
+    private string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024} KB";
+        return $"{bytes / (1024 * 1024)} MB";
+    }
+}

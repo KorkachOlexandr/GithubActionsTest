@@ -1,0 +1,11 @@
+/FileManager.Shared/bin
+/FileManager.Maui/bin
+/FileManager.Maui/obj
+/FileManager.Shared/obj
+/FileManager.Tests/obj
+/FileManager.Client/bin
+/FileManager.Client/obj
+/FileManager.Api/obj
+/FileManager.Api/bin
+/FileManager.Tests/bin
+/FileManager.Api/uploads
