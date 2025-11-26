@@ -1,1 +1,1 @@
-![CI](https://github.com/KorkachOlexandr/GithubActionsTest/actions/workflows/tests.yml/badge.svg)
+![CI](https://github.com/KorkachOlexandr/GithubActionsTest/actions/workflows/actionTest.yml/badge.svg)
