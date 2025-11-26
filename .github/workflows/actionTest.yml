@@ -30,13 +30,13 @@ jobs:
             ${{ runner.os }}-nuget-
       
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore FileManager.Tests/FileManager.Tests.csproj
       
       - name: Build
-        run: dotnet build --no-restore
+        run: dotnet build FileManager.Tests/FileManager.Tests.csproj --no-restore
       
       - name: Test
-        run: dotnet test --no-build --verbosity normal
+        run: dotnet test FileManager.Tests/FileManager.Tests.csproj --no-build --verbosity normal
       
       - name: Upload test logs
         if: always()
